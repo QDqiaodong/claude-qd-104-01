@@ -19,6 +19,10 @@ public class ShiftRecord {
     @Column(name = "shift_type", nullable = false, length = 16)
     public String shiftType;
 
+    /** 这个班挂在哪把枪上，开班时选定后不再改 */
+    @Column(name = "gun_id", nullable = false)
+    public Long gunId;
+
     /** 接班时的枪读数 */
     @Column(name = "start_reading", nullable = false)
     public Integer startReading;

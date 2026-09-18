@@ -2,8 +2,10 @@ package com.gas.station.service;
 
 import com.gas.station.dto.BizException;
 import com.gas.station.entity.FuelGun;
+import com.gas.station.entity.ShiftRecord;
 import com.gas.station.entity.Tank;
 import com.gas.station.repository.FuelGunRepository;
+import com.gas.station.repository.ShiftRecordRepository;
 import com.gas.station.repository.TankRepository;
 import java.util.List;
 import org.springframework.stereotype.Service;
@@ -14,10 +16,13 @@ public class FuelGunService {
 
     private final FuelGunRepository guns;
     private final TankRepository tanks;
+    private final ShiftRecordRepository shifts;
 
-    public FuelGunService(FuelGunRepository guns, TankRepository tanks) {
+    public FuelGunService(FuelGunRepository guns, TankRepository tanks,
+                          ShiftRecordRepository shifts) {
         this.guns = guns;
         this.tanks = tanks;
+        this.shifts = shifts;
     }
 
     public List<FuelGun> list(Long tankId, String status, String keyword) {
@@ -66,9 +71,13 @@ public class FuelGunService {
         return guns.save(saved);
     }
 
+    /**
+     * 改枪走枪行锁，和开班/交班在同一把锁上排队。
+     * 财务拍板：枪上还挂着当班中的班，就不许把它改成维修/停用。
+     */
     @Transactional
     public FuelGun update(Long id, FuelGun input) {
-        FuelGun g = guns.findById(id).orElseThrow(() -> new BizException("油枪不存在"));
+        FuelGun g = guns.findByIdForUpdate(id).orElseThrow(() -> new BizException("油枪不存在"));
         if (input.machineNo != null && !input.machineNo.isBlank()) {
             g.machineNo = input.machineNo.trim();
         }
@@ -84,6 +93,14 @@ public class FuelGunService {
             g.product = probe.product;
         }
         if (input.status != null && !input.status.isBlank() && !input.status.equals(g.status)) {
+            if (!"可用".equals(input.status)) {
+                List<ShiftRecord> active = shifts.findByGunIdAndStatus(id, "当班中");
+                if (!active.isEmpty()) {
+                    ShiftRecord s = active.get(0);
+                    throw new BizException("这把枪还挂着 " + s.shiftDate + " " + s.shiftType
+                            + " 没交，交完班才能改成「" + input.status + "」");
+                }
+            }
             g.status = input.status;
         }
         return guns.save(g);

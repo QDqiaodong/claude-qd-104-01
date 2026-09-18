@@ -43,7 +43,7 @@
       <span><i class="d off"></i>停用</span>
       <span><i class="d fix"></i>维修</span>
       <span class="grow" />
-      <span class="note">点任意一把枪可以改它的机号、油品、所连储罐和状态</span>
+      <span class="note">点任意一把枪可以改它的机号、油品、所连储罐和状态；还挂着当班的枪改不了维修/停用</span>
     </div>
 
     <el-dialog v-model="visible" :title="form.id ? '编辑油枪' : '挂一把新枪'" width="450px">

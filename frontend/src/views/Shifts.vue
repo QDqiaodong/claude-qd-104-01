@@ -11,6 +11,7 @@
         <div class="who">
           <span class="op">{{ active.operator }}</span>
           <span class="when">{{ active.shiftDate }} · {{ active.shiftType }}</span>
+          <span class="guntag">{{ gunLabel(active.gunId) }}</span>
         </div>
 
         <div class="reads">
@@ -52,6 +53,7 @@
       <div class="cap">已交接</div>
       <div class="head">
         <span style="width:150px">班次</span>
+        <span style="width:90px">油枪</span>
         <span style="width:170px">读数</span>
         <span style="width:110px">加油量</span>
         <span style="width:110px">收款</span>
@@ -59,6 +61,7 @@
       </div>
       <div v-for="s in done" :key="s.id" class="drow">
         <span class="mono dim" style="width:150px">{{ s.shiftDate }} {{ s.shiftType }}</span>
+        <span class="mono" style="width:90px">{{ gunLabel(s.gunId) }}</span>
         <span class="mono" style="width:170px">{{ s.startReading }} → {{ s.endReading }}</span>
         <span class="mono vol" style="width:110px">{{ s.volume }} 升</span>
         <span class="mono amt" style="width:110px">¥{{ s.amount }}</span>
@@ -78,6 +81,17 @@
             <el-option label="夜班" value="夜班" />
           </el-select>
         </el-form-item>
+        <el-form-item label="加油枪">
+          <el-select v-model="form.gunId" style="width:100%" placeholder="选一把当前可用的枪">
+            <el-option
+              v-for="g in availGuns"
+              :key="g.id"
+              :label="`${g.code}（${g.product} · ${g.machineNo}）`"
+              :value="g.id"
+            />
+          </el-select>
+          <div v-if="!availGuns.length" class="gunhint">现在没有可用的枪，开不了班</div>
+        </el-form-item>
         <el-form-item label="接班读数">
           <el-input-number v-model="form.startReading" :min="0" :step="100" />
         </el-form-item>
@@ -96,9 +110,10 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { shiftApi } from '../api'
+import { shiftApi, gunApi } from '../api'
 
 const rows = ref([])
+const guns = ref([])
 const visible = ref(false)
 const form = ref({})
 const endReading = ref(null)
@@ -106,6 +121,12 @@ const amount = ref(0)
 
 const active = computed(() => rows.value.find((s) => s.status === '当班中') || null)
 const done = computed(() => rows.value.filter((s) => s.status === '已交接'))
+const availGuns = computed(() => guns.value.filter((g) => g.status === '可用'))
+
+function gunLabel(id) {
+  const hit = guns.value.find((g) => g.id === id)
+  return hit ? hit.code : `#${id}`
+}
 
 const preview = computed(() => {
   if (!active.value || endReading.value === null || endReading.value === undefined) return null
@@ -125,7 +146,9 @@ const err = computed(() => {
 
 async function load() {
   try {
-    rows.value = await shiftApi.list({})
+    const [shiftRows, gunRows] = await Promise.all([shiftApi.list({}), gunApi.list({})])
+    rows.value = shiftRows
+    guns.value = gunRows
     endReading.value = null
     amount.value = 0
   } catch (e) {
@@ -133,12 +156,22 @@ async function load() {
   }
 }
 
-function openCreate() {
-  form.value = { shiftType: '白班' }
+async function openCreate() {
+  try {
+    guns.value = await gunApi.list({})
+  } catch (e) {
+    ElMessage.error(e.message)
+    return
+  }
+  form.value = { shiftType: '白班', gunId: null }
   visible.value = true
 }
 
 async function open() {
+  if (!form.value.gunId) {
+    ElMessage.error('开班要选定一把加油枪')
+    return
+  }
   try {
     await shiftApi.create(form.value)
     ElMessage.success('已开班')
@@ -213,6 +246,21 @@ onMounted(load)
   font-size: 12px;
   color: #909399;
   font-family: monospace;
+}
+.guntag {
+  margin-left: auto;
+  font-size: 12px;
+  font-family: monospace;
+  font-weight: 700;
+  color: var(--el-color-primary);
+  background: var(--el-color-primary-light-9);
+  border-radius: 4px;
+  padding: 3px 9px;
+}
+.gunhint {
+  font-size: 12px;
+  color: #f56c6c;
+  line-height: 1.6;
 }
 .reads {
   display: flex;
