@@ -34,6 +34,7 @@ CREATE TABLE shift_record (
   id BIGINT NOT NULL AUTO_INCREMENT,
   shift_date DATE NOT NULL,
   shift_type VARCHAR(16) NOT NULL,
+  gun_id BIGINT NOT NULL,
   start_reading INT NOT NULL,
   end_reading INT NULL,
   volume INT NULL,
@@ -41,7 +42,8 @@ CREATE TABLE shift_record (
   operator VARCHAR(32) NOT NULL,
   status VARCHAR(16) NOT NULL,
   PRIMARY KEY (id),
-  KEY idx_shift_date_type (shift_date, shift_type)
+  UNIQUE KEY uk_shift_date_type (shift_date, shift_type),
+  KEY idx_shift_gun_status (gun_id, status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE unloading (
@@ -86,10 +88,11 @@ INSERT INTO fuel_gun (code, machine_no, product, tank_id, status) VALUES
 ('G-04', '2号机', '92#', 1, '维修'),
 ('G-05', '3号机', '0#', 3, '停用');
 
-INSERT INTO shift_record (shift_date, shift_type, start_reading, end_reading, volume, amount, operator, status) VALUES
-('2026-09-16', '白班', 120000, 125600, 5600, 42000, '王小明', '已交接'),
-('2026-09-16', '夜班', 125600, NULL, NULL, NULL, '李强', '当班中'),
-('2026-09-15', '白班', 114000, 120000, 6000, 45000, '王小明', '已交接');
+-- 三个班都挂在 G-01 上，读数链 114000 → 120000 → 125600 → 当班中，正好一环扣一环
+INSERT INTO shift_record (shift_date, shift_type, gun_id, start_reading, end_reading, volume, amount, operator, status) VALUES
+('2026-09-16', '白班', 1, 120000, 125600, 5600, 42000, '王小明', '已交接'),
+('2026-09-16', '夜班', 1, 125600, NULL, NULL, NULL, '李强', '当班中'),
+('2026-09-15', '白班', 1, 114000, 120000, 6000, 45000, '王小明', '已交接');
 
 INSERT INTO inspection (inspect_date, point, result, issue_desc, inspector, status) VALUES
 ('2026-09-16', 'T-01罐区', '正常', NULL, '王小明', '已记录'),

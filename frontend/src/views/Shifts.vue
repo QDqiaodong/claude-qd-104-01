@@ -7,61 +7,67 @@
         <span class="newlink" @click="openCreate">＋ 开一个班</span>
       </div>
 
-      <div v-if="active" class="active">
+      <div v-for="s in actives" :key="s.id" class="active">
         <div class="who">
-          <span class="op">{{ active.operator }}</span>
-          <span class="when">{{ active.shiftDate }} · {{ active.shiftType }}</span>
+          <span class="op">{{ s.operator }}</span>
+          <span class="when">{{ s.shiftDate }} · {{ s.shiftType }}</span>
+          <span class="guntag">{{ gunLabel(s.gunId) }}</span>
         </div>
 
         <div class="reads">
           <div class="read">
             <span>接班读数</span>
-            <b class="mono">{{ active.startReading }}</b>
+            <b class="mono">{{ s.startReading }}</b>
           </div>
           <div class="read">
             <span>交班读数</span>
-            <b class="mono" :class="{ ready: endReading !== null }">
-              {{ endReading === null ? '—' : endReading }}
+            <b class="mono" :class="{ ready: endOf(s) !== null }">
+              {{ endOf(s) === null ? '—' : endOf(s) }}
             </b>
           </div>
           <div class="read hl">
             <span>本班加油量</span>
-            <b class="mono">{{ preview === null ? '—' : preview }} <i>升</i></b>
+            <b class="mono">{{ previewOf(s) === null ? '—' : previewOf(s) }} <i>升</i></b>
           </div>
         </div>
 
         <div class="hand">
           <div class="hrow">
             <label>交班时枪读数</label>
-            <input v-model.number="endReading" type="number" :min="active.startReading" />
+            <input v-model.number="ends[s.id]" type="number" :min="s.startReading" />
           </div>
           <div class="hrow">
             <label>本班收款（元）</label>
-            <input v-model.number="amount" type="number" min="0" />
+            <input v-model.number="amounts[s.id]" type="number" min="0" />
           </div>
-          <div v-if="err" class="err">{{ err }}</div>
-          <button class="main" :disabled="!!err" @click="doHandover">交　班</button>
-          <div class="tip">加油量由服务端用「交班读数 − 接班读数」算，不用手填。</div>
+          <div v-if="errs[s.id]" class="err">{{ errs[s.id] }}</div>
+          <button class="main" @click="doHandover(s)">交　班</button>
+          <div class="tip">
+            加油量由服务端用「交班读数 − 接班读数」算，不用手填。
+            点交班时这把枪已被改成维修/停用的，这次交班会被拒，班还停在当班中。
+          </div>
         </div>
       </div>
 
-      <div v-else class="none">现在没有当班中的班次，点右上角开一个班</div>
+      <div v-if="!actives.length" class="none">现在没有当班中的班次，点右上角开一个班</div>
     </section>
 
     <section class="panel right">
       <div class="cap">已交接</div>
       <div class="head">
         <span style="width:150px">班次</span>
-        <span style="width:170px">读数</span>
-        <span style="width:110px">加油量</span>
-        <span style="width:110px">收款</span>
+        <span style="width:70px">枪号</span>
+        <span style="width:160px">读数</span>
+        <span style="width:100px">加油量</span>
+        <span style="width:100px">收款</span>
         <span>当班人</span>
       </div>
       <div v-for="s in done" :key="s.id" class="drow">
         <span class="mono dim" style="width:150px">{{ s.shiftDate }} {{ s.shiftType }}</span>
-        <span class="mono" style="width:170px">{{ s.startReading }} → {{ s.endReading }}</span>
-        <span class="mono vol" style="width:110px">{{ s.volume }} 升</span>
-        <span class="mono amt" style="width:110px">¥{{ s.amount }}</span>
+        <span class="mono" style="width:70px">{{ gunLabel(s.gunId) }}</span>
+        <span class="mono" style="width:160px">{{ s.startReading }} → {{ s.endReading }}</span>
+        <span class="mono vol" style="width:100px">{{ s.volume }} 升</span>
+        <span class="mono amt" style="width:100px">¥{{ s.amount }}</span>
         <span class="dim">{{ s.operator }}</span>
       </div>
       <div v-if="!done.length" class="none">还没有交过班的记录</div>
@@ -78,9 +84,25 @@
             <el-option label="夜班" value="夜班" />
           </el-select>
         </el-form-item>
+        <el-form-item label="用哪把枪">
+          <el-select v-model="form.gunId" style="width:100%" placeholder="选一把当前可用的枪" @change="fillStart">
+            <el-option
+              v-for="g in openableGuns"
+              :key="g.id"
+              :label="`${g.code}（${g.product} · ${g.machineNo}）`"
+              :value="g.id"
+            />
+          </el-select>
+        </el-form-item>
+        <div v-if="!openableGuns.length" class="tip nogun">
+          现在没有能开班的枪：维修、停用或还挂着当班班的枪都开不了班。
+        </div>
         <el-form-item label="接班读数">
           <el-input-number v-model="form.startReading" :min="0" :step="100" />
         </el-form-item>
+        <div v-if="lastEnd !== null" class="tip chain">
+          这把枪上一班交到 {{ lastEnd }}，接班读数已按它填好，可改。
+        </div>
         <el-form-item label="当班人">
           <el-input v-model="form.operator" placeholder="如 王小明" />
         </el-form-item>
@@ -94,40 +116,70 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { shiftApi } from '../api'
+import { shiftApi, gunApi } from '../api'
 
 const rows = ref([])
+const guns = ref([])
 const visible = ref(false)
 const form = ref({})
-const endReading = ref(null)
-const amount = ref(0)
+// 每个当班中的班各填各的交班读数、收款和报错，互不影响
+const ends = reactive({})
+const amounts = reactive({})
+const errs = reactive({})
 
-const active = computed(() => rows.value.find((s) => s.status === '当班中') || null)
+const actives = computed(() => rows.value.filter((s) => s.status === '当班中'))
 const done = computed(() => rows.value.filter((s) => s.status === '已交接'))
 
-const preview = computed(() => {
-  if (!active.value || endReading.value === null || endReading.value === undefined) return null
-  return Math.max(0, endReading.value - active.value.startReading)
+// 能开班的枪：状态可用，而且这会儿没挂着当班中的班
+const openableGuns = computed(() =>
+  guns.value.filter((g) => g.status === '可用' && !actives.value.some((s) => s.gunId === g.id))
+)
+
+function gunLabel(id) {
+  const g = guns.value.find((x) => x.id === id)
+  return g ? g.code : `#${id}`
+}
+
+// 选中那把枪上一班交出去的读数，接班读数按它对齐
+const lastEnd = computed(() => {
+  if (!form.value.gunId) return null
+  const hit = rows.value.find(
+    (s) => s.gunId === form.value.gunId && s.status === '已交接' && s.endReading !== null
+  )
+  return hit ? hit.endReading : null
 })
 
-const err = computed(() => {
-  if (!active.value) return ''
-  if (endReading.value === null || endReading.value === undefined || endReading.value === '') {
-    return '还没填交班读数'
+function fillStart() {
+  if (lastEnd.value !== null) {
+    form.value.startReading = lastEnd.value
   }
-  if (endReading.value < active.value.startReading) {
-    return `交班读数不能小于接班读数 ${active.value.startReading}`
-  }
-  return ''
-})
+}
+
+function endOf(s) {
+  const v = ends[s.id]
+  return v === null || v === undefined || v === '' ? null : v
+}
+
+function previewOf(s) {
+  const e = endOf(s)
+  return e === null ? null : Math.max(0, e - s.startReading)
+}
 
 async function load() {
   try {
-    rows.value = await shiftApi.list({})
-    endReading.value = null
-    amount.value = 0
+    const [shiftRows, gunRows] = await Promise.all([shiftApi.list({}), gunApi.list({})])
+    rows.value = shiftRows
+    guns.value = gunRows
+    // 清掉已经交掉的班的输入框；还在当班中的班保留填到一半的读数和报错
+    for (const k of Object.keys(ends)) {
+      if (!shiftRows.some((s) => s.status === '当班中' && String(s.id) === String(k))) {
+        delete ends[k]
+        delete amounts[k]
+        delete errs[k]
+      }
+    }
   } catch (e) {
     ElMessage.error(e.message)
   }
@@ -149,13 +201,24 @@ async function open() {
   }
 }
 
-async function doHandover() {
+async function doHandover(s) {
+  const e = endOf(s)
+  if (e === null) {
+    errs[s.id] = '还没填交班读数'
+    return
+  }
+  if (e < s.startReading) {
+    errs[s.id] = `交班读数不能小于接班读数 ${s.startReading}`
+    return
+  }
   try {
-    await shiftApi.handover(active.value.id, endReading.value, amount.value)
+    await shiftApi.handover(s.id, e, amounts[s.id])
     ElMessage.success('已交班')
     await load()
-  } catch (e) {
-    ElMessage.error(e.message)
+  } catch (ex) {
+    // 交班被拒（比如这把枪刚被改成维修/停用）：班还停在当班中，报错留在这个班上
+    await load()
+    errs[s.id] = ex.message
   }
 }
 
@@ -198,6 +261,11 @@ onMounted(load)
   color: var(--el-color-primary);
   cursor: pointer;
 }
+.active + .active {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px dashed #ebeef5;
+}
 .who {
   display: flex;
   align-items: baseline;
@@ -213,6 +281,16 @@ onMounted(load)
   font-size: 12px;
   color: #909399;
   font-family: monospace;
+}
+.guntag {
+  margin-left: auto;
+  font-size: 12px;
+  font-family: monospace;
+  font-weight: 700;
+  color: var(--el-color-primary);
+  background: var(--el-color-primary-light-9);
+  border-radius: 4px;
+  padding: 2px 8px;
 }
 .reads {
   display: flex;
@@ -303,6 +381,13 @@ onMounted(load)
   font-size: 11px;
   color: #c0c4cc;
   margin-top: 9px;
+}
+.tip.nogun,
+.tip.chain {
+  margin: -8px 0 12px 96px;
+}
+.tip.chain {
+  color: #e6a23c;
 }
 .none {
   text-align: center;

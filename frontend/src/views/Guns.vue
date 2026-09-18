@@ -31,7 +31,10 @@
             <div class="gcode">{{ g.code }}</div>
             <div class="gprod">{{ g.product }}</div>
             <div class="gtank">{{ tankLabel(g.tankId) }}</div>
-            <div class="gst">{{ g.status }}</div>
+            <div class="gst">
+              {{ g.status }}
+              <span v-if="onDuty.has(g.id)" class="duty">· 当班中</span>
+            </div>
           </div>
         </div>
       </div>
@@ -43,7 +46,7 @@
       <span><i class="d off"></i>停用</span>
       <span><i class="d fix"></i>维修</span>
       <span class="grow" />
-      <span class="note">点任意一把枪可以改它的机号、油品、所连储罐和状态</span>
+      <span class="note">点任意一把枪可以改它的机号、油品、所连储罐和状态；还挂着当班班的枪要先交班，才能改成维修或停用</span>
     </div>
 
     <el-dialog v-model="visible" :title="form.id ? '编辑油枪' : '挂一把新枪'" width="450px">
@@ -88,11 +91,12 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { gunApi, tankApi } from '../api'
+import { gunApi, tankApi, shiftApi } from '../api'
 
 const products = ['92#', '95#', '0#', '-10#']
 const rows = ref([])
 const tanks = ref([])
+const onDuty = ref(new Set())
 const statusFilter = ref('')
 const visible = ref(false)
 const form = ref({})
@@ -128,6 +132,15 @@ async function loadTanks() {
   }
 }
 
+async function loadOnDuty() {
+  try {
+    const actives = await shiftApi.list({ status: '当班中' })
+    onDuty.value = new Set(actives.map((s) => s.gunId))
+  } catch (e) {
+    // 角标只是提示，拉不到不挡页面
+  }
+}
+
 function openCreate() {
   form.value = { product: '92#', status: '可用' }
   visible.value = true
@@ -148,6 +161,7 @@ async function save() {
     ElMessage.success('已保存')
     visible.value = false
     await load()
+    await loadOnDuty()
   } catch (e) {
     ElMessage.error(e.message)
   }
@@ -156,6 +170,7 @@ async function save() {
 onMounted(async () => {
   await loadTanks()
   await load()
+  await loadOnDuty()
 })
 </script>
 
@@ -279,6 +294,10 @@ onMounted(async () => {
   margin-top: 7px;
   font-size: 11px;
   color: #909399;
+}
+.duty {
+  color: #e6a23c;
+  font-weight: 700;
 }
 .none {
   color: #c0c4cc;

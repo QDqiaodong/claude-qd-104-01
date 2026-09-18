@@ -3,9 +3,11 @@ package com.gas.station.entity;
 import jakarta.persistence.*;
 import java.time.LocalDate;
 
-/** 班次交接：一个班的加油量与收款。 */
+/** 班次交接：一个班的加油量与收款，挂在选定的一把枪上。 */
 @Entity
-@Table(name = "shift_record")
+@Table(name = "shift_record",
+        uniqueConstraints = @UniqueConstraint(name = "uk_shift_date_type",
+                columnNames = {"shift_date", "shift_type"}))
 public class ShiftRecord {
 
     @Id
@@ -18,6 +20,10 @@ public class ShiftRecord {
     /** 白班 / 夜班 */
     @Column(name = "shift_type", nullable = false, length = 16)
     public String shiftType;
+
+    /** 这个班挂在哪把枪上，两头读数都是这把枪的读数；开班后不再换枪 */
+    @Column(name = "gun_id", nullable = false)
+    public Long gunId;
 
     /** 接班时的枪读数 */
     @Column(name = "start_reading", nullable = false)
